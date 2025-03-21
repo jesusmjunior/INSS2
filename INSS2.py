@@ -18,7 +18,6 @@ def login():
     usuarios_validos = {
         "jesusmjunior2021@gmail.com": "jr010507",
         "joliveiramaccf@gmail.com": "cgti@383679",
-        # Espaço reservado para novos usuários:
         "usuario3@email.com": "senha3",
         "usuario4@email.com": "senha4",
         "usuario5@email.com": "senha5",
@@ -82,29 +81,22 @@ if cnis_file and carta_file and desconsid_file:
     df_cnis = organizar_cnis(cnis_file)
     df_desconsiderados = organizar_desconsiderados(desconsid_file)
 
-    # 80% MAIORES SALÁRIOS
     df_cnis_sorted = df_cnis.sort_values(by='Remuneração', ascending=False)
     qtd_80 = int(len(df_cnis_sorted) * 0.8)
     df_top80 = df_cnis_sorted.head(qtd_80)
     df_bottom10 = df_cnis_sorted.tail(len(df_cnis_sorted) - qtd_80)
 
-    # DESCONSIDERADOS VANTAJOSOS
     min_80 = df_top80['Remuneração'].min()
     df_vantajosos = df_desconsiderados[df_desconsiderados['Sal. Corrigido'] > min_80]
 
-    # PARÂMETROS DEFAULT
     Tc_default, Es_default, Id_default, a_default = 38, 21.8, 60, 0.31
     media_salarios = df_top80['Remuneração'].mean()
     fator = fator_previdenciario(Tc_default, Es_default, Id_default, a_default)
     salario_beneficio = round(media_salarios * fator, 2)
 
-    # FORMATAÇÃO MOEDA
     df_top80['Remuneração'] = df_top80['Remuneração'].apply(formatar_moeda)
     df_vantajosos['Sal. Corrigido'] = df_vantajosos['Sal. Corrigido'].apply(formatar_moeda)
 
-    # ================================
-    # DASHBOARD PRINCIPAL
-    # ================================
     if aba == "Dashboard":
         st.title("📑 Dashboard Previdenciário Profissional")
 
@@ -122,18 +114,12 @@ if cnis_file and carta_file and desconsid_file:
         st.dataframe(df_top80)
         st.dataframe(df_vantajosos)
 
-    # ================================
-    # GRÁFICOS
-    # ================================
     elif aba == "Gráficos":
         st.title("📊 Visualização Gráfica")
         df_grafico = df_cnis_sorted.head(qtd_80)
         st.bar_chart(data=df_grafico, x='Competência', y='Remuneração')
         st.line_chart(data=df_grafico, x='Competência', y='Remuneração')
 
-    # ================================
-    # EXPLICAÇÃO
-    # ================================
     elif aba == "Explicação":
         st.title("📖 Explicação Detalhada")
         st.markdown("### Fórmulas Aplicadas:")
@@ -152,9 +138,6 @@ if cnis_file and carta_file and desconsid_file:
         ''')
         st.markdown(f"**Média = {formatar_moeda(media_salarios)}, Fator = {fator}, Resultado = {formatar_moeda(salario_beneficio)}**")
 
-    # ================================
-    # SIMULADOR
-    # ================================
     elif aba == "Simulador":
         st.title("⚙️ Simulador Previdenciário")
         Tc_input = st.number_input("Tempo de Contribuição (anos)", value=38)
@@ -166,9 +149,6 @@ if cnis_file and carta_file and desconsid_file:
         st.write(f"**Fator Previdenciário Simulado:** {fator_simulado}")
         st.write(f"**Salário Benefício Simulado:** {formatar_moeda(salario_simulado)}")
 
-    # ================================
-    # RELATÓRIO FINAL
-    # ================================
     elif aba == "Relatório":
         st.title("📄 Relatório Previdenciário Consolidado")
 
@@ -183,11 +163,13 @@ if cnis_file and carta_file and desconsid_file:
         st.markdown("---")
 
         st.subheader("📌 Detalhamento dos 80% Maiores Salários")
-        st.dataframe(df_top80, height=800)
+        st.dataframe(df_top80, height=1100)
 
+        st.markdown("---")
         st.subheader("📌 Salários Desconsiderados Reaproveitados")
-        st.dataframe(df_vantajosos, height=800)
+        st.dataframe(df_vantajosos, height=1100)
 
+        st.markdown("---")
         st.subheader("📌 Fórmula Previdenciária Aplicada")
         st.latex(r'''
         Fator\ Previdenci\u00e1rio = \frac{T_c \times a}{E_s} \times \left(1 + \frac{I_d + T_c \times a}{100}\right)
