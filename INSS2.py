@@ -1,160 +1,102 @@
 import streamlit as st
 import pandas as pd
-import json
+import pdfplumber
+import tabula
+import os
 
-st.set_page_config(page_title="Dashboard Previdenciário Profissional", layout="wide")
+st.set_page_config(page_title="Jesus e INSS | Extrator CNIS + Carta Benefício", layout="centered")
 
-# ================================
-# LOGIN SIMPLES COM BOTÃO DE OCULTAR
-# ================================
-def login():
-    if 'login_visible' not in st.session_state:
-        st.session_state.login_visible = True
+st.title("📄 JESUS E INSS - Extrator CNIS & Carta Benefício")
+st.write("**Processamento automatizado baseado em lógica fuzzy, com exportação em CSV/XLSX**")
 
-    if st.session_state.login_visible:
-        with st.expander("🔐 Área Protegida - Login Obrigatório", expanded=True):
-            user = st.text_input("Usuário (Email)")
-            password = st.text_input("Senha", type="password")
+# --------------- CONFIGURAÇÕES INICIAIS --------------------
+uploaded_file = st.file_uploader("🔽 Faça o upload do arquivo PDF (CNIS ou Carta Benefício):", type="pdf")
+output_format = st.radio("📁 Formato de Exportação:", ['CSV', 'XLSX'])
 
-            usuarios = {
-                "jesusmjunior2021@gmail.com": "jr010507",
-                "joliveiramaccf@gmail.com": "cgti@383679"
-            }
+# ------------------ FUNÇÕES BASE --------------------------
 
-            if (user in usuarios and password == usuarios[user]):
-                st.success("Login efetuado com sucesso ✅")
-                if st.button("Ocultar Login"):
-                    st.session_state.login_visible = False
-                return True
-            else:
-                if user and password:
-                    st.error("Usuário ou senha incorretos ❌")
-                st.stop()
+def verificar_existencia(path):
+    return os.path.exists(path)
+
+def extrair_tabula(pdf_path):
+    try:
+        dfs = tabula.read_pdf(pdf_path, pages='all', multiple_tables=True, lattice=True)
+        return dfs
+    except Exception:
+        return None
+
+def extrair_plumber(pdf_path):
+    linhas = []
+    with pdfplumber.open(pdf_path) as pdf:
+        for page in pdf.pages:
+            lines = page.extract_text().split('\n')
+            linhas.extend(lines)
+    return linhas
+
+def estrutura_cnis(linhas):
+    data = []
+    for line in linhas:
+        if '/' in line and any(char.isdigit() for char in line):
+            parts = line.strip().split()
+            if len(parts) >= 2:
+                data.append({'Competência': parts[0], 'Remuneração': parts[1]})
+    return pd.DataFrame(data)
+
+def estrutura_carta(dfs):
+    if dfs:
+        for df in dfs:
+            if len(df.columns) >= 5:
+                df.columns = ['Seq.', 'Data', 'Salário', 'Índice', 'Sal. Corrigido', 'Observação'][:len(df.columns)]
+                return df
+    return None
+
+def exportar_df(df, nome_base, formato):
+    if formato == 'CSV':
+        df.to_csv(f"{nome_base}.csv", index=False)
+        return f"{nome_base}.csv"
     else:
-        st.info("Login ocultado. Clique abaixo para reexibir.")
-        if st.button("Mostrar Login"):
-            st.session_state.login_visible = True
-            st.experimental_rerun()
+        df.to_excel(f"{nome_base}.xlsx", index=False)
+        return f"{nome_base}.xlsx"
 
-# EXECUTA LOGIN
-login()
+# ------------------ EXECUÇÃO PRINCIPAL --------------------
 
-# ================================
-# UPLOAD CSV
-# ================================
-st.sidebar.header("🔽 Upload dos Arquivos")
-uploaded_file = st.sidebar.file_uploader("Upload do arquivo CSV de salários", type="csv")
-
-if uploaded_file:
-    df = pd.read_csv(uploaded_file)
-    st.subheader("Dados Carregados")
-    st.dataframe(df)
-
-    st.subheader("Índices Econômicos por Período (Ajustáveis)")
-    indices_ano = {
-        '1980': st.number_input("Índice 1980-1990", value=5000.0),
-        '1990': st.number_input("Índice 1990-1994", value=1000.0),
-        '1994': st.number_input("Índice 1994-2000", value=2.75),
-        '2000': st.number_input("Índice 2000-2010", value=1.3),
-        '2010': st.number_input("Índice 2010-2020", value=1.1),
-        '2020': st.number_input("Índice 2020+", value=1.05),
-    }
-
-    def atualizar_valor_plano(competencia, salario):
-        ano = int(competencia.split('/')[-1])
-        if ano < 1990:
-            fator = indices_ano['1980']
-        elif ano < 1994:
-            fator = indices_ano['1990']
-        elif ano < 2000:
-            fator = indices_ano['1994']
-        elif ano < 2010:
-            fator = indices_ano['2000']
-        elif ano < 2020:
-            fator = indices_ano['2010']
+if uploaded_file is not None:
+    with st.spinner('🔍 Verificando e processando o PDF...'):
+        temp_pdf_path = f"temp_{uploaded_file.name}"
+        with open(temp_pdf_path, "wb") as f:
+            f.write(uploaded_file.read())
+        
+        # Lógica fuzzy para escolha do método
+        tabula_dfs = extrair_tabula(temp_pdf_path)
+        if tabula_dfs and any(not df.empty for df in tabula_dfs):
+            st.success("📑 Documento identificado como **Carta de Benefício** (Tabula detectou tabelas)")
+            df_final = estrutura_carta(tabula_dfs)
+            nome_output = "Carta_Beneficio_Extraida"
         else:
-            fator = indices_ano['2020']
-        salario_corrigido = salario * fator
-        return round(salario_corrigido, 2)
+            st.warning("📝 Documento identificado como **Extrato CNIS** (Nenhuma tabela detectada)")
+            linhas = extrair_plumber(temp_pdf_path)
+            df_final = estrutura_cnis(linhas)
+            nome_output = "Extrato_CNIS_Extraido"
 
-    df['Remuneração Corrigida'] = df.apply(
-        lambda row: atualizar_valor_plano(str(row['Competência']), row['Remuneração']), axis=1
-    )
+        if df_final is not None and not df_final.empty:
+            st.subheader("📊 Dados Extraídos:")
+            st.dataframe(df_final)
 
-    st.subheader("Salários Corrigidos")
-    st.dataframe(df[['Competência', 'Remuneração', 'Remuneração Corrigida']])
+            file_output = exportar_df(df_final, nome_output, output_format)
+            st.success(f"✅ Exportação concluída! Arquivo gerado: {file_output}")
+            with open(file_output, 'rb') as f:
+                st.download_button("⬇️ Baixar Arquivo", data=f, file_name=file_output, mime='application/octet-stream')
+            
+            # Perguntas adicionais:
+            st.divider()
+            st.info("Deseja integrar com Google Sheets ou API? 🚀 (Futuro recurso)")
+            st.info("Deseja validar dados fuzzy ou processar um novo documento?")
 
-    salarios_corrigidos = df['Remuneração Corrigida'].dropna().astype(float)
-    salarios_ordenados = salarios_corrigidos.sort_values(ascending=False)
-    n = int(len(salarios_ordenados) * 0.8)
-    media_80 = round(salarios_ordenados.iloc[:n].mean(), 2)
+        else:
+            st.error("❌ Não foi possível estruturar os dados.")
 
-    fator_previdenciario = 0.9322
-    salario_beneficio = round(media_80 * fator_previdenciario, 2)
-
-    st.subheader("Resultados")
-    st.write(f"**Média dos 80% maiores salários corrigidos:** R$ {media_80:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-    st.write(f"**Fator Previdenciário Aplicado:** {fator_previdenciario}")
-    st.write(f"**Salário de Benefício Final:** R$ {salario_beneficio:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
-
-    log = {
-        'Índices Econômicos Aplicados': indices_ano,
-        'Média 80%': media_80,
-        'Fator Previdenciário': fator_previdenciario,
-        'Salário Benefício Final': salario_beneficio
-    }
-    log_json = json.dumps(log, indent=4)
-
-    st.download_button("Baixar Log Auditável", log_json, file_name="log_auditoria_previdenciario.json")
-
-    # ================================
-    # RELATÓRIO FINAL ONLINE
-    # ================================
-    st.subheader("📄 Relatório Final: Carta de Concessão")
-    st.markdown("""
-    #### Nome: <NOME>
-    #### NIT: <NIT>
-    #### APS: <APS>
-    #### Benefício: <Número do Benefício>
-    #### Data de Concessão: <Data>
-    
-    Explicação: Apresenta-se abaixo detalhamento dos salários considerados e desconsiderados com observações.
-    """)
-
-    st.dataframe(df[['Competência', 'Remuneração', 'Remuneração Corrigida']])
-
-    st.markdown("""
-    **Observação:** Valores considerados conforme cálculo realizado. Para campos desconsiderados, verificar tabela anexa.
-
-    **Anexo 1:** Dados CNIS Originais - [Download CSV](Link_CSV_Cnis)
-
-    **Anexo 2:** Dados Desconsiderados - [Download CSV](Link_CSV_Desconsiderados)
-
-    ----
-
-    **Salve também estes arquivos no Google Drive e abra como Google Planilha para controle futuro.**
-
-    **Tutorial Rápido:**
-    1. Faça download dos arquivos acima.
-    2. Acesse [Google Drive](https://drive.google.com/).
-    3. Clique em **Novo** > **Upload de Arquivo**.
-    4. Após subir, clique com o botão direito e escolha "Abrir com Google Planilhas".
-    5. Salve.
-    
-    ----
-    """)
-
-    # Personalização visual - cabeçalho e bot mascot
-    st.markdown("""
-    <style>
-    .header {font-size:35px; text-align:center; border:1px solid #ccc; padding:10px; background-color:#f0f0f0; margin-bottom:20px;}
-    .floating {position: fixed; bottom: 50px; right: 10px; background: #333; color: white; padding: 10px; border-radius: 10px; cursor: pointer;}
-    </style>
-    <div class="header">Jesus 🤖</div>
-    <div class="floating" onclick="window.alert('Fale com Jesus: 98 98304-4543!')">Jesus 📞</div>
-    """, unsafe_allow_html=True)
-
-    st.success("Relatório Final gerado e pronto para impressão ou envio digital!")
+        os.remove(temp_pdf_path)
 
 else:
-    st.info("🔔 Faça upload do arquivo de salários para iniciar o cálculo.")
+    st.info("👆 Faça o upload de um arquivo PDF para iniciar o processamento.")
+
