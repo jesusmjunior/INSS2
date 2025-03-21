@@ -24,14 +24,12 @@ output_format = st.radio("📁 Formato de Exportação:", ['CSV', 'XLSX'])
 # ===================== FUNÇÕES BASE =====================
 
 def extrair_texto_pdf(uploaded_file):
-    # Leitura simples do PDF em binário e conversão para texto ignorando erros
     bin_pdf = uploaded_file.read()
     texto = bin_pdf.decode(errors='ignore')
     return texto
 
 
 def sanitizar_numeros(texto):
-    # Remove qualquer caractere estranho, mantém apenas números, pontos, barras e espaços
     texto = re.sub(r'[^0-9.,/\n ]', '', texto)
     texto = texto.replace(',', '.')
     return texto
@@ -42,12 +40,11 @@ def estrutura_cnis(texto):
     data = []
     for line in linhas:
         line_clean = line.strip()
-        if re.match(r"\d{2}/\d{4}", line_clean):  # Captura formato MM/YYYY
-            parts = line_clean.split()
-            if len(parts) >= 2:
-                competencia = parts[0]
-                remuneracao = parts[1].replace('.', '').replace(',', '.')
-                data.append({'Competência': competencia, 'Remuneração': remuneracao})
+        match = re.match(r"(\d{2}/\d{4})\s+([0-9.]+)", line_clean)
+        if match:
+            competencia = match.group(1)
+            remuneracao = match.group(2).replace('.', '').replace(',', '.')
+            data.append({'Competência': competencia, 'Remuneração': remuneracao})
     return pd.DataFrame(data)
 
 
@@ -56,23 +53,22 @@ def estrutura_carta(texto):
     data = []
     for line in linhas:
         line_clean = line.strip()
-        if re.match(r"^\d{3}\s", line_clean):
-            parts = re.split(r'\s+', line_clean)
-            if len(parts) >= 6:
-                seq = parts[0]
-                data_col = parts[1]
-                salario = parts[2].replace('.', '').replace(',', '.')
-                indice = parts[3].replace(',', '.')
-                sal_corrigido = parts[4].replace('.', '').replace(',', '.')
-                observacao = " ".join(parts[5:])
-                data.append({
-                    'Seq.': seq,
-                    'Data': data_col,
-                    'Salário': salario,
-                    'Índice': indice,
-                    'Sal. Corrigido': sal_corrigido,
-                    'Observação': observacao
-                })
+        match = re.match(r"^(\d{3})\s+(\d{2}/\d{4})\s+([0-9.,]+)\s+([0-9.,]+)\s+([0-9.,]+)\s+(.*)", line_clean)
+        if match:
+            seq = match.group(1)
+            data_col = match.group(2)
+            salario = match.group(3).replace('.', '').replace(',', '.')
+            indice = match.group(4).replace(',', '.')
+            sal_corrigido = match.group(5).replace('.', '').replace(',', '.')
+            observacao = match.group(6)
+            data.append({
+                'Seq.': seq,
+                'Data': data_col,
+                'Salário': salario,
+                'Índice': indice,
+                'Sal. Corrigido': sal_corrigido,
+                'Observação': observacao
+            })
     return pd.DataFrame(data)
 
 
