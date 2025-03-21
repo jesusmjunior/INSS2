@@ -1,33 +1,80 @@
 import streamlit as st
 import pandas as pd
-import os
 import re
+import os
+from io import StringIO
 
-# ------------------- CONFIG -------------------
-st.set_page_config(page_title="Jesus e INSS | Extrator CNIS Robust", layout="centered")
+# ===================== CONFIG PÁGINA =====================
+st.set_page_config(page_title="Jesus e INSS | Extrator CNIS + Carta Benefício", layout="centered")
 
-st.title("📄 JESUS e INSS - Extrator CNIS (Versão Robusta)")
-st.write("**Leitura total, contagem de linhas e organização limpa dos dados**")
+st.title("📄 JESUS e INSS - Extrator CNIS & Carta Benefício")
+st.write("**Processamento leve, com lógica fuzzy aplicada, sanitização robusta e precisão na extração dos dados numéricos.**")
 
-uploaded_file = st.file_uploader("🔽 Faça o upload do arquivo TXT do Extrato CNIS:", type="txt")
+# ===================== RECEPÇÃO DOS PDFs =====================
+col1, col2 = st.columns(2)
+
+with col1:
+    uploaded_cnis = st.file_uploader("🔽 Upload do arquivo CNIS:", type="pdf", key="cnis")
+
+with col2:
+    uploaded_carta = st.file_uploader("🔽 Upload do arquivo Carta Benefício:", type="pdf", key="carta")
+
 output_format = st.radio("📁 Formato de Exportação:", ['CSV', 'XLSX'])
 
-# ------------------- FUNÇÕES -------------------
+# ===================== FUNÇÕES BASE =====================
 
-def contar_linhas(texto):
+def extrair_texto_pdf(uploaded_file):
+    # Leitura simples do PDF em binário e conversão para texto ignorando erros
+    bin_pdf = uploaded_file.read()
+    texto = bin_pdf.decode(errors='ignore')
+    return texto
+
+
+def sanitizar_numeros(texto):
+    # Remove qualquer caractere estranho, mantém apenas números, pontos, barras e espaços
+    texto = re.sub(r'[^0-9.,/\n ]', '', texto)
+    texto = texto.replace(',', '.')
+    return texto
+
+
+def estrutura_cnis(texto):
     linhas = texto.split('\n')
-    return len(linhas), linhas
-
-def extrair_remuneracoes(linhas):
-    padrao = r"(\d{2}/\d{4})\s+([\d\.,]+)"
     data = []
-    for linha in linhas:
-        matches = re.findall(padrao, linha)
-        for m in matches:
-            competencia = m[0]
-            remuneracao = m[1].replace(".", "").replace(",", ".")  # Corrige formato
-            data.append({'Competência': competencia, 'Remuneração': remuneracao})
+    for line in linhas:
+        line_clean = line.strip()
+        if re.match(r"\d{2}/\d{4}", line_clean):  # Captura formato MM/YYYY
+            parts = line_clean.split()
+            if len(parts) >= 2:
+                competencia = parts[0]
+                remuneracao = parts[1].replace('.', '').replace(',', '.')
+                data.append({'Competência': competencia, 'Remuneração': remuneracao})
     return pd.DataFrame(data)
+
+
+def estrutura_carta(texto):
+    linhas = texto.split('\n')
+    data = []
+    for line in linhas:
+        line_clean = line.strip()
+        if re.match(r"^\d{3}\s", line_clean):
+            parts = re.split(r'\s+', line_clean)
+            if len(parts) >= 6:
+                seq = parts[0]
+                data_col = parts[1]
+                salario = parts[2].replace('.', '').replace(',', '.')
+                indice = parts[3].replace(',', '.')
+                sal_corrigido = parts[4].replace('.', '').replace(',', '.')
+                observacao = " ".join(parts[5:])
+                data.append({
+                    'Seq.': seq,
+                    'Data': data_col,
+                    'Salário': salario,
+                    'Índice': indice,
+                    'Sal. Corrigido': sal_corrigido,
+                    'Observação': observacao
+                })
+    return pd.DataFrame(data)
+
 
 def exportar_df(df, nome_base, formato):
     if formato == 'CSV':
@@ -37,33 +84,41 @@ def exportar_df(df, nome_base, formato):
         df.to_excel(f"{nome_base}.xlsx", index=False)
         return f"{nome_base}.xlsx"
 
-# ------------------- EXECUÇÃO PRINCIPAL -------------------
+# ===================== PROCESSAMENTO CNIS =====================
 
-if uploaded_file is not None:
-    with st.spinner('🔍 Lendo e processando todas as linhas...'):
-        texto = uploaded_file.read().decode(errors='ignore')
-        total_linhas, lista_linhas = contar_linhas(texto)
-        st.info(f"📑 Total de linhas no arquivo: **{total_linhas} linhas**")
+if uploaded_cnis is not None:
+    with st.spinner('🔍 Processando arquivo CNIS...'):
+        texto_pdf = extrair_texto_pdf(uploaded_cnis)
+        texto_pdf = sanitizar_numeros(texto_pdf)
+        df_cnis = estrutura_cnis(texto_pdf)
 
-        df_remuneracoes = extrair_remuneracoes(lista_linhas)
-        total_registros = len(df_remuneracoes)
-        st.success(f"✅ Total de registros extraídos: **{total_registros} registros**")
+        if not df_cnis.empty:
+            st.subheader("📊 Dados CNIS Extraídos:")
+            st.dataframe(df_cnis)
 
-        if not df_remuneracoes.empty:
-            st.subheader("📊 Dados Organizados:")
-            st.dataframe(df_remuneracoes)
-
-            file_output = exportar_df(df_remuneracoes, "CNIS_Organizado", output_format)
-            st.success(f"Arquivo exportado: {file_output}")
+            file_output = exportar_df(df_cnis, "Extrato_CNIS_Extraido", output_format)
+            st.success(f"✅ Exportação CNIS concluída! Arquivo gerado: {file_output}")
             with open(file_output, 'rb') as f:
-                st.download_button("⬇️ Baixar Arquivo", data=f, file_name=file_output, mime='application/octet-stream')
+                st.download_button("⬇️ Baixar Arquivo CNIS", data=f, file_name=file_output, mime='application/octet-stream')
 
-            st.divider()
-            st.info("Deseja processar um novo documento?")
+# ===================== PROCESSAMENTO CARTA =====================
 
-        else:
-            st.error("❌ Nenhum dado encontrado.")
+if uploaded_carta is not None:
+    with st.spinner('🔍 Processando arquivo Carta Benefício...'):
+        texto_pdf = extrair_texto_pdf(uploaded_carta)
+        texto_pdf = sanitizar_numeros(texto_pdf)
+        df_carta = estrutura_carta(texto_pdf)
 
-else:
-    st.info("👆 Faça o upload do arquivo TXT do Extrato CNIS para iniciar.")
+        if not df_carta.empty:
+            st.subheader("📊 Dados Carta Benefício Extraídos:")
+            st.dataframe(df_carta)
 
+            file_output = exportar_df(df_carta, "Carta_Beneficio_Extraida", output_format)
+            st.success(f"✅ Exportação Carta concluída! Arquivo gerado: {file_output}")
+            with open(file_output, 'rb') as f:
+                st.download_button("⬇️ Baixar Arquivo Carta", data=f, file_name=file_output, mime='application/octet-stream')
+
+# ===================== FEEDBACK =====================
+
+if uploaded_cnis is None and uploaded_carta is None:
+    st.info("👆 Faça o upload de um arquivo CNIS e/ou Carta Benefício para iniciar o processamento.")
