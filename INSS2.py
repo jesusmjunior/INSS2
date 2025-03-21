@@ -2,12 +2,13 @@ import streamlit as st
 import pandas as pd
 import re
 import os
+from io import StringIO
 
 # ===================== CONFIG PÁGINA =====================
 st.set_page_config(page_title="Jesus e INSS | Extrator CNIS + Carta Benefício", layout="centered")
 
 st.title("📄 JESUS e INSS - Extrator CNIS & Carta Benefício")
-st.write("**Processamento leve, com lógica fuzzy aplicada e sanitização de dados numéricos.**")
+st.write("**Processamento leve, com lógica fuzzy aplicada, sanitização robusta e precisão na extração dos dados numéricos.**")
 
 # ===================== RECEPÇÃO DOS PDFs =====================
 col1, col2 = st.columns(2)
@@ -20,20 +21,18 @@ with col2:
 
 output_format = st.radio("📁 Formato de Exportação:", ['CSV', 'XLSX'])
 
-# ===================== DICIONÁRIO FUZZY =====================
-dicionario_fuzzy = {
-    'α (Alfa)': {'bloco': 'Organização de Variáveis', 'peso': 0.9, 'ação': 'Modularizar Variáveis'},
-    'β (Beta)': {'bloco': 'Modularização de Regras', 'peso': 0.7, 'ação': 'Modularizar Regras'},
-    'γ (Gama)': {'bloco': 'Correção de Falhas', 'peso': 1.0, 'ação': 'Correção Crítica'},
-    'δ (Delta)': {'bloco': 'Boas Práticas e Refatoração', 'peso': 0.6, 'ação': 'Refatorar Código'},
-    'ε (Epsilon)': {'bloco': 'Redução Estrutural', 'peso': 0.75, 'ação': 'Eliminar Redundâncias'},
-    'θ (Theta)': {'bloco': 'Otimização Performance', 'peso': 0.95, 'ação': 'Otimizar Código'},
-}
-
 # ===================== FUNÇÕES BASE =====================
 
+def extrair_texto_pdf(uploaded_file):
+    # Leitura simples do PDF em binário e conversão para texto ignorando erros
+    bin_pdf = uploaded_file.read()
+    texto = bin_pdf.decode(errors='ignore')
+    return texto
+
+
 def sanitizar_numeros(texto):
-    texto = re.sub(r'[^0-9,./\n ]', '', texto)
+    # Remove qualquer caractere estranho, mantém apenas números, pontos, barras e espaços
+    texto = re.sub(r'[^0-9.,/\n ]', '', texto)
     texto = texto.replace(',', '.')
     return texto
 
@@ -42,10 +41,13 @@ def estrutura_cnis(texto):
     linhas = texto.split('\n')
     data = []
     for line in linhas:
-        if '/' in line and any(char.isdigit() for char in line):
-            parts = line.strip().split()
+        line_clean = line.strip()
+        if re.match(r"\d{2}/\d{4}", line_clean):  # Captura formato MM/YYYY
+            parts = line_clean.split()
             if len(parts) >= 2:
-                data.append({'Competência': parts[0], 'Remuneração': parts[1]})
+                competencia = parts[0]
+                remuneracao = parts[1].replace('.', '').replace(',', '.')
+                data.append({'Competência': competencia, 'Remuneração': remuneracao})
     return pd.DataFrame(data)
 
 
@@ -53,16 +55,23 @@ def estrutura_carta(texto):
     linhas = texto.split('\n')
     data = []
     for line in linhas:
-        if line.strip().startswith(tuple("0123456789")):
-            parts = line.strip().split()
-            if len(parts) >= 5:
+        line_clean = line.strip()
+        if re.match(r"^\d{3}\s", line_clean):
+            parts = re.split(r'\s+', line_clean)
+            if len(parts) >= 6:
+                seq = parts[0]
+                data_col = parts[1]
+                salario = parts[2].replace('.', '').replace(',', '.')
+                indice = parts[3].replace(',', '.')
+                sal_corrigido = parts[4].replace('.', '').replace(',', '.')
+                observacao = " ".join(parts[5:])
                 data.append({
-                    'Seq.': parts[0],
-                    'Data': parts[1],
-                    'Salário': parts[2],
-                    'Índice': parts[3],
-                    'Sal. Corrigido': parts[4],
-                    'Observação': " ".join(parts[5:]) if len(parts) > 5 else ""
+                    'Seq.': seq,
+                    'Data': data_col,
+                    'Salário': salario,
+                    'Índice': indice,
+                    'Sal. Corrigido': sal_corrigido,
+                    'Observação': observacao
                 })
     return pd.DataFrame(data)
 
@@ -79,8 +88,7 @@ def exportar_df(df, nome_base, formato):
 
 if uploaded_cnis is not None:
     with st.spinner('🔍 Processando arquivo CNIS...'):
-        bin_pdf = uploaded_cnis.read()
-        texto_pdf = bin_pdf.decode(errors='ignore')
+        texto_pdf = extrair_texto_pdf(uploaded_cnis)
         texto_pdf = sanitizar_numeros(texto_pdf)
         df_cnis = estrutura_cnis(texto_pdf)
 
@@ -97,8 +105,7 @@ if uploaded_cnis is not None:
 
 if uploaded_carta is not None:
     with st.spinner('🔍 Processando arquivo Carta Benefício...'):
-        bin_pdf = uploaded_carta.read()
-        texto_pdf = bin_pdf.decode(errors='ignore')
+        texto_pdf = extrair_texto_pdf(uploaded_carta)
         texto_pdf = sanitizar_numeros(texto_pdf)
         df_carta = estrutura_carta(texto_pdf)
 
