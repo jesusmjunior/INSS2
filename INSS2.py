@@ -15,8 +15,18 @@ def login():
     user = st.text_input("Usuário (Email)")
     password = st.text_input("Senha", type="password")
 
-    if (user == "jesusmjunior2021@gmail.com" and password == "jr010507") or \
-       (user == "joliveiramaccf@gmail.com" and password == "cgti@383679"):
+    usuarios_validos = {
+        "jesusmjunior2021@gmail.com": "jr010507",
+        "joliveiramaccf@gmail.com": "cgti@383679",
+        # Espaço reservado para novos usuários:
+        "usuario3@email.com": "senha3",
+        "usuario4@email.com": "senha4",
+        "usuario5@email.com": "senha5",
+        "usuario6@email.com": "senha6",
+        "usuario7@email.com": "senha7"
+    }
+
+    if user in usuarios_validos and password == usuarios_validos[user]:
         st.success("Login efetuado com sucesso ✅")
         return True
     else:
@@ -173,10 +183,10 @@ if cnis_file and carta_file and desconsid_file:
         st.markdown("---")
 
         st.subheader("📌 Detalhamento dos 80% Maiores Salários")
-        st.dataframe(df_top80)
+        st.dataframe(df_top80, height=800)
 
         st.subheader("📌 Salários Desconsiderados Reaproveitados")
-        st.dataframe(df_vantajosos)
+        st.dataframe(df_vantajosos, height=800)
 
         st.subheader("📌 Fórmula Previdenciária Aplicada")
         st.latex(r'''
