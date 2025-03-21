@@ -9,7 +9,15 @@ st.set_page_config(page_title="Jesus e INSS | Extrator CNIS + Carta Benefício",
 st.title("📄 JESUS e INSS - Extrator CNIS & Carta Benefício")
 st.write("**Processamento leve, com lógica fuzzy aplicada e sanitização de dados numéricos.**")
 
-uploaded_file = st.file_uploader("🔽 Faça o upload do arquivo PDF (CNIS ou Carta Benefício):", type="pdf")
+# ===================== RECEPÇÃO DOS PDFs =====================
+col1, col2 = st.columns(2)
+
+with col1:
+    uploaded_cnis = st.file_uploader("🔽 Upload do arquivo CNIS:", type="pdf", key="cnis")
+
+with col2:
+    uploaded_carta = st.file_uploader("🔽 Upload do arquivo Carta Benefício:", type="pdf", key="carta")
+
 output_format = st.radio("📁 Formato de Exportação:", ['CSV', 'XLSX'])
 
 # ===================== DICIONÁRIO FUZZY =====================
@@ -23,19 +31,6 @@ dicionario_fuzzy = {
 }
 
 # ===================== FUNÇÕES BASE =====================
-
-def inferir_documento(binario_pdf):
-    texto = binario_pdf.decode(errors='ignore')
-    if "Seq." in texto or "Índice" in texto:
-        pertinencia = dicionario_fuzzy['β (Beta)']['peso']
-        return "Carta Benefício", texto, pertinencia
-    elif "Competência" in texto or "/" in texto:
-        pertinencia = dicionario_fuzzy['α (Alfa)']['peso']
-        return "Extrato CNIS", texto, pertinencia
-    else:
-        pertinencia = dicionario_fuzzy['γ (Gama)']['peso']
-        return "Desconhecido", texto, pertinencia
-
 
 def sanitizar_numeros(texto):
     texto = re.sub(r'[^0-9,./\n ]', '', texto)
@@ -80,43 +75,43 @@ def exportar_df(df, nome_base, formato):
         df.to_excel(f"{nome_base}.xlsx", index=False)
         return f"{nome_base}.xlsx"
 
-# ===================== EXECUÇÃO PRINCIPAL =====================
+# ===================== PROCESSAMENTO CNIS =====================
 
-if uploaded_file is not None:
-    with st.spinner('🔍 Analisando e sanitizando com lógica fuzzy...'):
-        bin_pdf = uploaded_file.read()
-        tipo_doc, texto_pdf, peso_pertinencia = inferir_documento(bin_pdf)
-
-        st.info(f"🔎 Peso de Pertinência Detectado: {peso_pertinencia}")
-
+if uploaded_cnis is not None:
+    with st.spinner('🔍 Processando arquivo CNIS...'):
+        bin_pdf = uploaded_cnis.read()
+        texto_pdf = bin_pdf.decode(errors='ignore')
         texto_pdf = sanitizar_numeros(texto_pdf)
+        df_cnis = estrutura_cnis(texto_pdf)
 
-        if tipo_doc == "Carta Benefício":
-            st.success("📑 Documento identificado como **Carta de Benefício**.")
-            df_final = estrutura_carta(texto_pdf)
-            nome_output = "Carta_Beneficio_Extraida"
-        elif tipo_doc == "Extrato CNIS":
-            st.warning("📝 Documento identificado como **Extrato CNIS**.")
-            df_final = estrutura_cnis(texto_pdf)
-            nome_output = "Extrato_CNIS_Extraido"
-        else:
-            st.error("❌ Documento não identificado claramente (peso crítico).")
-            df_final = None
+        if not df_cnis.empty:
+            st.subheader("📊 Dados CNIS Extraídos:")
+            st.dataframe(df_cnis)
 
-        if df_final is not None and not df_final.empty:
-            st.subheader("📊 Dados Extraídos:")
-            st.dataframe(df_final)
-
-            file_output = exportar_df(df_final, nome_output, output_format)
-            st.success(f"✅ Exportação concluída! Arquivo gerado: {file_output}")
+            file_output = exportar_df(df_cnis, "Extrato_CNIS_Extraido", output_format)
+            st.success(f"✅ Exportação CNIS concluída! Arquivo gerado: {file_output}")
             with open(file_output, 'rb') as f:
-                st.download_button("⬇️ Baixar Arquivo", data=f, file_name=file_output, mime='application/octet-stream')
+                st.download_button("⬇️ Baixar Arquivo CNIS", data=f, file_name=file_output, mime='application/octet-stream')
 
-            bloco_usado = [key for key, val in dicionario_fuzzy.items() if val['peso'] == peso_pertinencia]
-            st.info(f"🔗 Bloco Lógico Aplicado: {bloco_usado[0]} - {dicionario_fuzzy[bloco_usado[0]]['ação']}")
+# ===================== PROCESSAMENTO CARTA =====================
 
-            st.divider()
-            st.info("Deseja integrar com Google Sheets ou API? 🚀 (Futuro recurso)")
-            st.info("Deseja validar dados fuzzy ou processar um novo documento?")
-else:
-    st.info("👆 Faça o upload de um arquivo PDF para iniciar o processamento.")
+if uploaded_carta is not None:
+    with st.spinner('🔍 Processando arquivo Carta Benefício...'):
+        bin_pdf = uploaded_carta.read()
+        texto_pdf = bin_pdf.decode(errors='ignore')
+        texto_pdf = sanitizar_numeros(texto_pdf)
+        df_carta = estrutura_carta(texto_pdf)
+
+        if not df_carta.empty:
+            st.subheader("📊 Dados Carta Benefício Extraídos:")
+            st.dataframe(df_carta)
+
+            file_output = exportar_df(df_carta, "Carta_Beneficio_Extraida", output_format)
+            st.success(f"✅ Exportação Carta concluída! Arquivo gerado: {file_output}")
+            with open(file_output, 'rb') as f:
+                st.download_button("⬇️ Baixar Arquivo Carta", data=f, file_name=file_output, mime='application/octet-stream')
+
+# ===================== FEEDBACK =====================
+
+if uploaded_cnis is None and uploaded_carta is None:
+    st.info("👆 Faça o upload de um arquivo CNIS e/ou Carta Benefício para iniciar o processamento.")
