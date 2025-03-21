@@ -1,34 +1,47 @@
 import streamlit as st
 import pandas as pd
-import PyPDF2
+import re
 import os
 
+# ===================== CONFIG PÁGINA =====================
 st.set_page_config(page_title="Jesus e INSS | Extrator CNIS + Carta Benefício", layout="centered")
 
-st.title("📄 JESUS E INSS - Extrator CNIS & Carta Benefício")
-st.write("**Processamento leve com inferência fuzzy e exportação em CSV/XLSX**")
+st.title("📄 JESUS e INSS - Extrator CNIS & Carta Benefício")
+st.write("**Processamento leve, com lógica fuzzy aplicada e sanitização de dados numéricos.**")
 
-# --------------- CONFIGURAÇÕES INICIAIS --------------------
 uploaded_file = st.file_uploader("🔽 Faça o upload do arquivo PDF (CNIS ou Carta Benefício):", type="pdf")
 output_format = st.radio("📁 Formato de Exportação:", ['CSV', 'XLSX'])
 
-# ------------------ FUNÇÕES BASE --------------------------
+# ===================== DICIONÁRIO FUZZY =====================
+dicionario_fuzzy = {
+    'α (Alfa)': {'bloco': 'Organização de Variáveis', 'peso': 0.9, 'ação': 'Modularizar Variáveis'},
+    'β (Beta)': {'bloco': 'Modularização de Regras', 'peso': 0.7, 'ação': 'Modularizar Regras'},
+    'γ (Gama)': {'bloco': 'Correção de Falhas', 'peso': 1.0, 'ação': 'Correção Crítica'},
+    'δ (Delta)': {'bloco': 'Boas Práticas e Refatoração', 'peso': 0.6, 'ação': 'Refatorar Código'},
+    'ε (Epsilon)': {'bloco': 'Redução Estrutural', 'peso': 0.75, 'ação': 'Eliminar Redundâncias'},
+    'θ (Theta)': {'bloco': 'Otimização Performance', 'peso': 0.95, 'ação': 'Otimizar Código'},
+}
 
-def extrair_texto_pdf(pdf_path):
-    texto = ""
-    with open(pdf_path, "rb") as f:
-        reader = PyPDF2.PdfReader(f)
-        for page in reader.pages:
-            texto += page.extract_text()
+# ===================== FUNÇÕES BASE =====================
+
+def inferir_documento(binario_pdf):
+    texto = binario_pdf.decode(errors='ignore')
+    if "Seq." in texto or "Índice" in texto:
+        pertinencia = dicionario_fuzzy['β (Beta)']['peso']
+        return "Carta Benefício", texto, pertinencia
+    elif "Competência" in texto or "/" in texto:
+        pertinencia = dicionario_fuzzy['α (Alfa)']['peso']
+        return "Extrato CNIS", texto, pertinencia
+    else:
+        pertinencia = dicionario_fuzzy['γ (Gama)']['peso']
+        return "Desconhecido", texto, pertinencia
+
+
+def sanitizar_numeros(texto):
+    texto = re.sub(r'[^0-9,./\n ]', '', texto)
+    texto = texto.replace(',', '.')
     return texto
 
-def inferir_documento(texto):
-    if "Seq." in texto or "Índice" in texto:
-        return "Carta Benefício"
-    elif "Competência" in texto or "/" in texto:
-        return "Extrato CNIS"
-    else:
-        return "Desconhecido"
 
 def estrutura_cnis(texto):
     linhas = texto.split('\n')
@@ -39,6 +52,7 @@ def estrutura_cnis(texto):
             if len(parts) >= 2:
                 data.append({'Competência': parts[0], 'Remuneração': parts[1]})
     return pd.DataFrame(data)
+
 
 def estrutura_carta(texto):
     linhas = texto.split('\n')
@@ -57,6 +71,7 @@ def estrutura_carta(texto):
                 })
     return pd.DataFrame(data)
 
+
 def exportar_df(df, nome_base, formato):
     if formato == 'CSV':
         df.to_csv(f"{nome_base}.csv", index=False)
@@ -65,27 +80,27 @@ def exportar_df(df, nome_base, formato):
         df.to_excel(f"{nome_base}.xlsx", index=False)
         return f"{nome_base}.xlsx"
 
-# ------------------ EXECUÇÃO PRINCIPAL --------------------
+# ===================== EXECUÇÃO PRINCIPAL =====================
 
 if uploaded_file is not None:
-    with st.spinner('🔍 Verificando e processando o PDF...'):
-        temp_pdf_path = f"temp_{uploaded_file.name}"
-        with open(temp_pdf_path, "wb") as f:
-            f.write(uploaded_file.read())
+    with st.spinner('🔍 Analisando e sanitizando com lógica fuzzy...'):
+        bin_pdf = uploaded_file.read()
+        tipo_doc, texto_pdf, peso_pertinencia = inferir_documento(bin_pdf)
 
-        texto_pdf = extrair_texto_pdf(temp_pdf_path)
-        tipo_doc = inferir_documento(texto_pdf)
+        st.info(f"🔎 Peso de Pertinência Detectado: {peso_pertinencia}")
+
+        texto_pdf = sanitizar_numeros(texto_pdf)
 
         if tipo_doc == "Carta Benefício":
-            st.success("📑 Documento identificado como **Carta de Benefício** (inferência fuzzy).")
+            st.success("📑 Documento identificado como **Carta de Benefício**.")
             df_final = estrutura_carta(texto_pdf)
             nome_output = "Carta_Beneficio_Extraida"
         elif tipo_doc == "Extrato CNIS":
-            st.warning("📝 Documento identificado como **Extrato CNIS** (inferência fuzzy).")
+            st.warning("📝 Documento identificado como **Extrato CNIS**.")
             df_final = estrutura_cnis(texto_pdf)
             nome_output = "Extrato_CNIS_Extraido"
         else:
-            st.error("❌ Documento não identificado claramente.")
+            st.error("❌ Documento não identificado claramente (peso crítico).")
             df_final = None
 
         if df_final is not None and not df_final.empty:
@@ -97,11 +112,11 @@ if uploaded_file is not None:
             with open(file_output, 'rb') as f:
                 st.download_button("⬇️ Baixar Arquivo", data=f, file_name=file_output, mime='application/octet-stream')
 
+            bloco_usado = [key for key, val in dicionario_fuzzy.items() if val['peso'] == peso_pertinencia]
+            st.info(f"🔗 Bloco Lógico Aplicado: {bloco_usado[0]} - {dicionario_fuzzy[bloco_usado[0]]['ação']}")
+
             st.divider()
             st.info("Deseja integrar com Google Sheets ou API? 🚀 (Futuro recurso)")
             st.info("Deseja validar dados fuzzy ou processar um novo documento?")
-
-        os.remove(temp_pdf_path)
-
 else:
     st.info("👆 Faça o upload de um arquivo PDF para iniciar o processamento.")
