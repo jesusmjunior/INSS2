@@ -8,24 +8,24 @@ from io import StringIO
 st.set_page_config(page_title="Jesus e INSS | Extrator CNIS + Carta Benefício", layout="centered")
 
 st.title("📄 JESUS e INSS - Extrator CNIS & Carta Benefício")
-st.write("**Processamento leve, com lógica fuzzy aplicada, sanitização robusta e precisão na extração dos dados numéricos.**")
+st.write("**Processamento leve: Receba dados extraídos em TXT e converta para tabela estruturada, exportando em CSV/XLSX.**")
 
-# ===================== RECEPÇÃO DOS PDFs =====================
+# ===================== RECEPÇÃO DOS TXT =====================
 col1, col2 = st.columns(2)
 
 with col1:
-    uploaded_cnis = st.file_uploader("🔽 Upload do arquivo CNIS:", type="pdf", key="cnis")
+    uploaded_cnis_txt = st.file_uploader("🔽 Upload do arquivo CNIS (TXT):", type="txt", key="cnis_txt")
 
 with col2:
-    uploaded_carta = st.file_uploader("🔽 Upload do arquivo Carta Benefício:", type="pdf", key="carta")
+    uploaded_carta_txt = st.file_uploader("🔽 Upload do arquivo Carta Benefício (TXT):", type="txt", key="carta_txt")
 
 output_format = st.radio("📁 Formato de Exportação:", ['CSV', 'XLSX'])
 
 # ===================== FUNÇÕES BASE =====================
 
-def extrair_texto_pdf(uploaded_file):
-    bin_pdf = uploaded_file.read()
-    texto = bin_pdf.decode(errors='ignore')
+def ler_texto(uploaded_file):
+    stringio = StringIO(uploaded_file.getvalue().decode("utf-8"))
+    texto = stringio.read()
     return texto
 
 
@@ -80,13 +80,13 @@ def exportar_df(df, nome_base, formato):
         df.to_excel(f"{nome_base}.xlsx", index=False)
         return f"{nome_base}.xlsx"
 
-# ===================== PROCESSAMENTO CNIS =====================
+# ===================== PROCESSAMENTO CNIS TXT =====================
 
-if uploaded_cnis is not None:
-    with st.spinner('🔍 Processando arquivo CNIS...'):
-        texto_pdf = extrair_texto_pdf(uploaded_cnis)
-        texto_pdf = sanitizar_numeros(texto_pdf)
-        df_cnis = estrutura_cnis(texto_pdf)
+if uploaded_cnis_txt is not None:
+    with st.spinner('🔍 Processando arquivo CNIS (TXT)...'):
+        texto_txt = ler_texto(uploaded_cnis_txt)
+        texto_txt = sanitizar_numeros(texto_txt)
+        df_cnis = estrutura_cnis(texto_txt)
 
         if not df_cnis.empty:
             st.subheader("📊 Dados CNIS Extraídos:")
@@ -97,13 +97,13 @@ if uploaded_cnis is not None:
             with open(file_output, 'rb') as f:
                 st.download_button("⬇️ Baixar Arquivo CNIS", data=f, file_name=file_output, mime='application/octet-stream')
 
-# ===================== PROCESSAMENTO CARTA =====================
+# ===================== PROCESSAMENTO CARTA TXT =====================
 
-if uploaded_carta is not None:
-    with st.spinner('🔍 Processando arquivo Carta Benefício...'):
-        texto_pdf = extrair_texto_pdf(uploaded_carta)
-        texto_pdf = sanitizar_numeros(texto_pdf)
-        df_carta = estrutura_carta(texto_pdf)
+if uploaded_carta_txt is not None:
+    with st.spinner('🔍 Processando arquivo Carta Benefício (TXT)...'):
+        texto_txt = ler_texto(uploaded_carta_txt)
+        texto_txt = sanitizar_numeros(texto_txt)
+        df_carta = estrutura_carta(texto_txt)
 
         if not df_carta.empty:
             st.subheader("📊 Dados Carta Benefício Extraídos:")
@@ -116,5 +116,5 @@ if uploaded_carta is not None:
 
 # ===================== FEEDBACK =====================
 
-if uploaded_cnis is None and uploaded_carta is None:
-    st.info("👆 Faça o upload de um arquivo CNIS e/ou Carta Benefício para iniciar o processamento.")
+if uploaded_cnis_txt is None and uploaded_carta_txt is None:
+    st.info("👆 Faça o upload de um arquivo CNIS e/ou Carta Benefício em formato TXT para iniciar o processamento.")
