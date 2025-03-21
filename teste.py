@@ -1,46 +1,38 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
+import json
 import re
 from io import StringIO
 
-# ===================== CONFIGURAÇÃO DA PÁGINA =====================
+# ================================
+# CONFIGURAÇÃO INICIAL PRIMEIRA LINHA
+# ================================
 st.set_page_config(page_title="Jesus e INSS | Sistema Completo", layout="wide")
 
-# Título do App
-st.title("📄 JESUS e INSS - Extrator CNIS & Carta Benefício")
-st.write("**Recepção de arquivos TXT bagunçados ➔ Organização ➔ Visualização das tabelas completas ➔ Exportação CSV.**")
-
-# ===================== ABA DE LOGIN =====================
+# ================================
+# LOGIN SIMPLES
+# ================================
 def login():
-    if 'login_visible' not in st.session_state:
-        st.session_state.login_visible = True
+    st.title("🔐 Área Protegida - Login Obrigatório")
+    user = st.text_input("Usuário (Email)")
+    password = st.text_input("Senha", type="password")
 
-    if st.session_state.login_visible:
-        with st.expander("🔐 Área Protegida - Login Obrigatório", expanded=True):
-            user = st.text_input("Usuário (Email)")
-            password = st.text_input("Senha", type="password")
-
-            usuarios = {
-                "jesusmjunior2021@gmail.com": "jr010507",
-                "joliveiramaccf@gmail.com": "cgti@383679"
-            }
-
-            if (user in usuarios and password == usuarios[user]):
-                st.success("Login efetuado com sucesso ✅")
-                if st.button("Ocultar Login"):
-                    st.session_state.login_visible = False
-                return True
-            else:
-                if user and password:
-                    st.error("Usuário ou senha incorretos ❌")
-                st.stop()
+    if user == "jesusmjunior2021@gmail.com" and password == "jr010507":
+        st.success("Login efetuado com sucesso ✅")
+        return True
     else:
-        st.info("Login ocultado. Clique abaixo para reexibir.")
-        if st.button("Mostrar Login"):
-            st.session_state.login_visible = True
-            st.experimental_rerun()
+        if user and password:
+            st.error("Usuário ou senha incorretos ❌")
+        st.stop()  # Para bloquear acesso caso não logado
 
-# ===================== FUNÇÕES DE LEITURA E ESTRUTURAÇÃO =====================
+# ================================
+# EXECUTA LOGIN
+# ================================
+login()
+
+# ================================
+# FUNÇÕES DE LEITURA E ESTRUTURAÇÃO =====================
 
 def ler_texto(uploaded_file):
     stringio = StringIO(uploaded_file.getvalue().decode("utf-8", errors='ignore'))
@@ -88,63 +80,87 @@ def exportar_csv(df, nome_base):
     df.to_csv(f"{nome_base}.csv", index=False)
     return f"{nome_base}.csv"
 
-# ===================== LAYOUT COM TABELAS =====================
 
-st.subheader("📊 Tabelas Organizacionais")
+def organizar_cnis(file):
+    df = pd.read_csv(file, delimiter=';', encoding='utf-8')
+    df = df.iloc[:,0].str.split(',', expand=True)
+    df.columns = ['Seq', 'Competência', 'Remuneração', 'Ano']
+    df['Remuneração'] = pd.to_numeric(df['Remuneração'], errors='coerce')
+    df = df[df['Remuneração'] < 50000]  # Remove discrepantes - fuzzy
+    return df
 
-col1, col2 = st.columns(2)
+def organizar_desconsiderados(file):
+    df = pd.read_csv(file, delimiter=';', encoding='utf-8')
+    df = df.iloc[:,0].str.split(',', expand=True)
+    df.columns = ['Seq', 'Seq.', 'Data', 'Salário', 'Índice', 'Sal. Corrigido', 'Observação', 'Ano', 'Duplicado']
+    df['Sal. Corrigido'] = pd.to_numeric(df['Sal. Corrigido'], errors='coerce')
+    return df
 
-with col1:
-    uploaded_cnis_txt = st.file_uploader("🔽 Upload do arquivo CNIS (TXT):", type="txt", key="cnis_txt")
+def fator_previdenciario(Tc, Es, Id, a=0.31):
+    fator = (Tc * a / Es) * (1 + ((Id + Tc * a) / 100))
+    return round(fator, 4)
 
-with col2:
-    uploaded_carta_txt = st.file_uploader("🔽 Upload do arquivo Carta Benefício (TXT):", type="txt", key="carta_txt")
+def formatar_moeda(valor):
+    return f"R$ {valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-# ===================== PROCESSAMENTO DOS DADOS =====================
 
-if uploaded_cnis_txt and uploaded_carta_txt:
-    # Processando CNIS
-    texto_cnis = ler_texto(uploaded_cnis_txt)
-    df_cnis = estrutura_cnis(texto_cnis)
+# ================================
+# UPLOAD
+# ================================
+st.sidebar.header("🔽 Upload dos Arquivos")
+cnis_file = st.sidebar.file_uploader("Upload - CNIS", type=["csv"])
+carta_file = st.sidebar.file_uploader("Upload - Carta", type=["csv"])
+desconsid_file = st.sidebar.file_uploader("Upload - Desconsiderados", type=["csv"])
 
-    # Processando Carta Benefício
-    texto_carta = ler_texto(uploaded_carta_txt)
-    df_carta = estrutura_carta(texto_carta)
+aba = st.sidebar.radio("Navegação", ["Dashboard", "Gráficos", "Explicação", "Simulador", "Relatório", "Atualização Monetária", "Salários Desconsiderados"])
 
-    # Exportando CNIS e Carta para CSV
-    file_cnis = exportar_csv(df_cnis, "Extrato_CNIS_Organizado")
-    file_carta = exportar_csv(df_carta, "Carta_Beneficio_Organizada")
-    st.download_button("⬇️ Baixar CNIS CSV", data=open(file_cnis, 'rb'), file_name=file_cnis, mime='text/csv')
-    st.download_button("⬇️ Baixar Carta CSV", data=open(file_carta, 'rb'), file_name=file_carta, mime='text/csv')
+# ================================
+# PROCESSAMENTO PRINCIPAL
+# ================================
+if cnis_file and carta_file and desconsid_file:
+    # Processamento de CNIS e Carta
+    df_cnis = organizar_cnis(cnis_file)
+    df_desconsiderados = organizar_desconsiderados(desconsid_file)
 
-    # ===================== SALÁRIOS DESCONSIDERADOS =====================
+    # 80% Maiores Salários
+    df_cnis_sorted = df_cnis.sort_values(by='Remuneração', ascending=False)
+    qtd_80 = int(len(df_cnis_sorted) * 0.8)
+    df_top80 = df_cnis_sorted.head(qtd_80)
+    df_bottom10 = df_cnis_sorted.tail(len(df_cnis_sorted) - qtd_80)
 
-    # CNIS - Filtrando os salários desconsiderados
-    df_desconsiderados_cnis = df_cnis[df_cnis['Remuneração'].astype(float) < 1000]  # Exemplo de filtro
-    df_desconsiderados_carta = df_carta[df_carta['Salário'].astype(float) < 1000]  # Exemplo de filtro
+    # Desconsiderados Vantajosos
+    min_80 = df_top80['Remuneração'].min()
+    df_vantajosos = df_desconsiderados[df_desconsiderados['Sal. Corrigido'] > min_80]
 
-    # Agrupando os dados de salários desconsiderados
+    # Parâmetros default
+    Tc_default, Es_default, Id_default, a_default = 38, 21.8, 60, 0.31
+    media_salarios = df_top80['Remuneração'].mean()
+    fator = fator_previdenciario(Tc_default, Es_default, Id_default, a_default)
+    salario_beneficio = round(media_salarios * fator, 2)
+
+    # Formatação de Moeda
+    df_top80['Remuneração'] = df_top80['Remuneração'].apply(formatar_moeda)
+    df_vantajosos['Sal. Corrigido'] = df_vantajosos['Sal. Corrigido'].apply(formatar_moeda)
+
+    # ================================
+    # TAREFA 1 - Salários Desconsiderados
+    # ================================
+    df_desconsiderados_cnis = df_cnis[df_cnis['Remuneração'].astype(float) < 1000]  # Filtrando salários desconsiderados CNIS
+    df_desconsiderados_carta = df_vantajosos[df_vantajosos['Sal. Corrigido'].astype(float) < 1000]  # Filtrando salários desconsiderados Carta
+
     df_desconsiderados = pd.concat([df_desconsiderados_cnis, df_desconsiderados_carta], ignore_index=True)
-    file_output_desconsiderados = exportar_csv(df_desconsiderados, "Salarios_Desconsiderados")
 
-    # Exibindo os salários desconsiderados
-    st.subheader("📊 Salários Desconsiderados (CNIS e Carta)")
+    file_output_desconsiderados = exportar_csv(df_desconsiderados, "Salarios_Desconsiderados")
     st.dataframe(df_desconsiderados, use_container_width=True)
     st.download_button("⬇️ Baixar Salários Desconsiderados CSV", data=open(file_output_desconsiderados, 'rb'), file_name=file_output_desconsiderados, mime='text/csv')
 
-    # ===================== CAIXA DE DADOS ALIENÍGENAS =====================
-
-    alienigenas_input = st.text_area("Inserir dados alienígenas para cálculo (formato livre):")
-    if st.button("Formatar Dados Alienígenas"):
-        # Processamento para formatar os dados alienígenas (exemplo simples)
-        alienigenas_formatted = alienigenas_input.replace(",", ".").replace("\n", ",").split(',')
-        df_alienigenas = pd.DataFrame({'Dados Alienígenas': alienigenas_formatted})
-        st.write("### Dados Alienígenas Formatados:")
-        st.dataframe(df_alienigenas)
-
-        # Gerar CSV para download
-        file_output_alienigenas = exportar_csv(df_alienigenas, "Alienigenas_Formatados")
-        st.download_button("⬇️ Baixar Alienígenas CSV", data=open(file_output_alienigenas, 'rb'), file_name=file_output_alienigenas, mime='text/csv')
+    # ================================
+    # ATUALIZAÇÃO MONETÁRIA
+    # ================================
+    if aba == "Atualização Monetária":
+        st.title("💰 Atualização Monetária por Período Econômico")
+        st.markdown("Aplique atualização monetária em cascata com índices ajustáveis para planos econômicos.")
+        # Continuação de implementação dos índices para atualização monetária...
 
 else:
-    st.info("🔔 Faça upload dos arquivos CNIS e Carta Benefício para iniciar o processamento.")
+    st.info("🔔 Faça upload dos arquivos obrigatórios para liberar o dashboard.")
