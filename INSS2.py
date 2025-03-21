@@ -1,14 +1,13 @@
 import streamlit as st
 import pandas as pd
 import re
-import os
 from io import StringIO
 
 # ===================== CONFIG PÁGINA =====================
 st.set_page_config(page_title="Jesus e INSS | Extrator CNIS + Carta Benefício", layout="centered")
 
 st.title("📄 JESUS e INSS - Extrator CNIS & Carta Benefício")
-st.write("**Processamento leve: Receba dados extraídos em TXT e converta para tabela estruturada, exportando em CSV/XLSX.**")
+st.write("**Receba dados bagunçados em TXT e converta para tabelas organizadas, exportando em CSV/XLSX.**")
 
 # ===================== RECEPÇÃO DOS TXT =====================
 col1, col2 = st.columns(2)
@@ -24,14 +23,8 @@ output_format = st.radio("📁 Formato de Exportação:", ['CSV', 'XLSX'])
 # ===================== FUNÇÕES BASE =====================
 
 def ler_texto(uploaded_file):
-    stringio = StringIO(uploaded_file.getvalue().decode("utf-8"))
+    stringio = StringIO(uploaded_file.getvalue().decode("utf-8", errors='ignore'))
     texto = stringio.read()
-    return texto
-
-
-def sanitizar_numeros(texto):
-    texto = re.sub(r'[^0-9.,/\n ]', '', texto)
-    texto = texto.replace(',', '.')
     return texto
 
 
@@ -39,8 +32,7 @@ def estrutura_cnis(texto):
     linhas = texto.split('\n')
     data = []
     for line in linhas:
-        line_clean = line.strip()
-        match = re.match(r"(\d{2}/\d{4})\s+([0-9.]+)", line_clean)
+        match = re.search(r"(\d{2}/\d{4})\s+([0-9.]+)", line)
         if match:
             competencia = match.group(1)
             remuneracao = match.group(2).replace('.', '').replace(',', '.')
@@ -52,15 +44,14 @@ def estrutura_carta(texto):
     linhas = texto.split('\n')
     data = []
     for line in linhas:
-        line_clean = line.strip()
-        match = re.match(r"^(\d{3})\s+(\d{2}/\d{4})\s+([0-9.,]+)\s+([0-9.,]+)\s+([0-9.,]+)\s+(.*)", line_clean)
+        match = re.match(r"^(\d{3})\s+(\d{2}/\d{4})\s+([0-9.,]+)\s+([0-9.,]+)\s+([0-9.,]+)(\s+.*)?", line)
         if match:
             seq = match.group(1)
             data_col = match.group(2)
             salario = match.group(3).replace('.', '').replace(',', '.')
             indice = match.group(4).replace(',', '.')
             sal_corrigido = match.group(5).replace('.', '').replace(',', '.')
-            observacao = match.group(6)
+            observacao = match.group(6).strip() if match.group(6) else ""
             data.append({
                 'Seq.': seq,
                 'Data': data_col,
@@ -85,14 +76,13 @@ def exportar_df(df, nome_base, formato):
 if uploaded_cnis_txt is not None:
     with st.spinner('🔍 Processando arquivo CNIS (TXT)...'):
         texto_txt = ler_texto(uploaded_cnis_txt)
-        texto_txt = sanitizar_numeros(texto_txt)
         df_cnis = estrutura_cnis(texto_txt)
 
         if not df_cnis.empty:
             st.subheader("📊 Dados CNIS Extraídos:")
             st.dataframe(df_cnis)
 
-            file_output = exportar_df(df_cnis, "Extrato_CNIS_Extraido", output_format)
+            file_output = exportar_df(df_cnis, "Extrato_CNIS_Organizado", output_format)
             st.success(f"✅ Exportação CNIS concluída! Arquivo gerado: {file_output}")
             with open(file_output, 'rb') as f:
                 st.download_button("⬇️ Baixar Arquivo CNIS", data=f, file_name=file_output, mime='application/octet-stream')
@@ -102,14 +92,13 @@ if uploaded_cnis_txt is not None:
 if uploaded_carta_txt is not None:
     with st.spinner('🔍 Processando arquivo Carta Benefício (TXT)...'):
         texto_txt = ler_texto(uploaded_carta_txt)
-        texto_txt = sanitizar_numeros(texto_txt)
         df_carta = estrutura_carta(texto_txt)
 
         if not df_carta.empty:
             st.subheader("📊 Dados Carta Benefício Extraídos:")
             st.dataframe(df_carta)
 
-            file_output = exportar_df(df_carta, "Carta_Beneficio_Extraida", output_format)
+            file_output = exportar_df(df_carta, "Carta_Beneficio_Organizada", output_format)
             st.success(f"✅ Exportação Carta concluída! Arquivo gerado: {file_output}")
             with open(file_output, 'rb') as f:
                 st.download_button("⬇️ Baixar Arquivo Carta", data=f, file_name=file_output, mime='application/octet-stream')
