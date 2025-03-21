@@ -4,10 +4,10 @@ import re
 from io import StringIO
 
 # ===================== CONFIG PÁGINA =====================
-st.set_page_config(page_title="Jesus e INSS | Extrator CNIS + Carta Benefício", layout="centered")
+st.set_page_config(page_title="Jesus e INSS | Extrator CNIS + Carta Benefício", layout="wide")
 
 st.title("📄 JESUS e INSS - Extrator CNIS & Carta Benefício")
-st.write("**Receba dados bagunçados em TXT e converta para tabelas organizadas, exportando em CSV/XLSX.**")
+st.write("**Recepção de arquivos TXT bagunçados ➔ Organização ➔ Visualização das tabelas completas ➔ Exportação CSV.**")
 
 # ===================== RECEPÇÃO DOS TXT =====================
 col1, col2 = st.columns(2)
@@ -17,8 +17,6 @@ with col1:
 
 with col2:
     uploaded_carta_txt = st.file_uploader("🔽 Upload do arquivo Carta Benefício (TXT):", type="txt", key="carta_txt")
-
-output_format = st.radio("📁 Formato de Exportação:", ['CSV', 'XLSX'])
 
 # ===================== FUNÇÕES BASE =====================
 
@@ -32,7 +30,7 @@ def estrutura_cnis(texto):
     linhas = texto.split('\n')
     data = []
     for line in linhas:
-        match = re.search(r"(\d{2}/\d{4})\s+([0-9.]+)", line)
+        match = re.search(r"(\d{2}/\d{4})\s+([0-9.]+,[0-9]{2})", line)
         if match:
             competencia = match.group(1)
             remuneracao = match.group(2).replace('.', '').replace(',', '.')
@@ -63,47 +61,45 @@ def estrutura_carta(texto):
     return pd.DataFrame(data)
 
 
-def exportar_df(df, nome_base, formato):
-    if formato == 'CSV':
-        df.to_csv(f"{nome_base}.csv", index=False)
-        return f"{nome_base}.csv"
-    else:
-        df.to_excel(f"{nome_base}.xlsx", index=False)
-        return f"{nome_base}.xlsx"
+def exportar_csv(df, nome_base):
+    df.to_csv(f"{nome_base}.csv", index=False)
+    return f"{nome_base}.csv"
 
-# ===================== PROCESSAMENTO CNIS TXT =====================
+# ===================== LAYOUT COM TABELAS =====================
 
-if uploaded_cnis_txt is not None:
-    with st.spinner('🔍 Processando arquivo CNIS (TXT)...'):
+st.subheader("📊 Tabelas Organizacionais")
+
+col3, col4 = st.columns(2)
+
+with col3:
+    st.markdown("### 📄 Extrato CNIS")
+    if uploaded_cnis_txt is not None:
         texto_txt = ler_texto(uploaded_cnis_txt)
         df_cnis = estrutura_cnis(texto_txt)
-
         if not df_cnis.empty:
-            st.subheader("📊 Dados CNIS Extraídos:")
-            st.dataframe(df_cnis)
+            st.dataframe(df_cnis, use_container_width=True)
+            file_output = exportar_csv(df_cnis, "Extrato_CNIS_Organizado")
+            st.download_button("⬇️ Baixar CNIS CSV", data=open(file_output, 'rb'), file_name=file_output, mime='text/csv')
+        else:
+            st.warning("⚠️ Nenhum dado CNIS identificado.")
+    else:
+        st.info("Faça upload do TXT CNIS para visualizar.")
 
-            file_output = exportar_df(df_cnis, "Extrato_CNIS_Organizado", output_format)
-            st.success(f"✅ Exportação CNIS concluída! Arquivo gerado: {file_output}")
-            with open(file_output, 'rb') as f:
-                st.download_button("⬇️ Baixar Arquivo CNIS", data=f, file_name=file_output, mime='application/octet-stream')
-
-# ===================== PROCESSAMENTO CARTA TXT =====================
-
-if uploaded_carta_txt is not None:
-    with st.spinner('🔍 Processando arquivo Carta Benefício (TXT)...'):
+with col4:
+    st.markdown("### 📄 Carta Benefício")
+    if uploaded_carta_txt is not None:
         texto_txt = ler_texto(uploaded_carta_txt)
         df_carta = estrutura_carta(texto_txt)
-
         if not df_carta.empty:
-            st.subheader("📊 Dados Carta Benefício Extraídos:")
-            st.dataframe(df_carta)
-
-            file_output = exportar_df(df_carta, "Carta_Beneficio_Organizada", output_format)
-            st.success(f"✅ Exportação Carta concluída! Arquivo gerado: {file_output}")
-            with open(file_output, 'rb') as f:
-                st.download_button("⬇️ Baixar Arquivo Carta", data=f, file_name=file_output, mime='application/octet-stream')
+            st.dataframe(df_carta, use_container_width=True)
+            file_output = exportar_csv(df_carta, "Carta_Beneficio_Organizada")
+            st.download_button("⬇️ Baixar Carta CSV", data=open(file_output, 'rb'), file_name=file_output, mime='text/csv')
+        else:
+            st.warning("⚠️ Nenhum dado da Carta identificado.")
+    else:
+        st.info("Faça upload do TXT da Carta para visualizar.")
 
 # ===================== FEEDBACK =====================
 
 if uploaded_cnis_txt is None and uploaded_carta_txt is None:
-    st.info("👆 Faça o upload de um arquivo CNIS e/ou Carta Benefício em formato TXT para iniciar o processamento.")
+    st.info("👆 Faça upload dos arquivos CNIS e Carta Benefício em TXT para iniciar.")
